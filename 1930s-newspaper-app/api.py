@@ -13,7 +13,7 @@ import uvicorn
 # Setup same path as app.py
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "talkie", "src"))
 from talkie import Talkie
-from app import memory_engine, V7TranslatorAgent, HistoricalReporterAgent, load_modern, unload_modern, load_historical, unload_historical
+from app import memory_engine, HistoricalReporterAgent, load_historical, unload_historical
 
 app = FastAPI(title="Verantyx 1930s Backend")
 
@@ -32,25 +32,18 @@ class NewsRequest(BaseModel):
 @app.post("/api/generate")
 def generate_news(req: NewsRequest):
     news_text = req.news_text
-    use_hybrid = req.use_hybrid
     
     try:
-        # 1. Translate
-        load_modern(use_hybrid)
-        abstracted_dict = V7TranslatorAgent.abstract_concept(news_text, use_hybrid)
-        if isinstance(abstracted_dict, str):
-            abstracted_dict = {"headline": "News", "subtitle": "Event", "event": abstracted_dict}
-        unload_modern(use_hybrid)
+        # Generate using Talkie 13B MLX (Bypass mode)
+        load_historical()
+        html_chunks = list(HistoricalReporterAgent.generate_article(news_text, max_tokens=150))
+        html_article = html_chunks[-1] if html_chunks else ""
+        unload_historical()
         
-        # 2. Reporter
-        load_historical(use_hybrid)
-        html_article = HistoricalReporterAgent.generate_article(abstracted_dict, use_hybrid)
-        unload_historical(use_hybrid)
-        
-        # 3. Memory
+        # Memory
         memory_engine.migrate_memory()
         
-        return {"headline": abstracted_dict['headline'], "subtitle": abstracted_dict['subtitle'], "html": html_article}
+        return {"headline": "Special Report", "subtitle": "Authorities Investigating Strange Occurrences", "html": html_article}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

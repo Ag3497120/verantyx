@@ -1,0 +1,9 @@
+■ JCROSS_NODE_DICT_1930
+【空間座相】 [Z:0]
+【次元概念】 #Design #1930 #Newspaper #Aesthetics
+【操作軌道】 [引: CORE_PERSONA]
+[本質記憶]
+//! OP.SET_COLOR("Sepia Paper", "background-color: #f4ecd8; color: #2c241b;")
+//! OP.USE_CSS_COLUMNS("Columns", "column-count: 2 or 3; column-gap: 20px; column-rule: 1px solid #3b2f2f;")
+//! OP.USE_BORDERS("Dividers", "border-top: 4px double #1a1a1a; border-bottom: 2px solid #1a1a1a;")
+//! [HTML/CSS Structural Dictionary] Use strictly <div> with the above inline styles. Avoid markdown.

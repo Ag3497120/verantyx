@@ -121,8 +121,13 @@
         loader.style.display = "block";
         output.innerHTML = "";
         
+        // Configuration: Set this to your Cloudflare Tunnel URL if running outside the built-in server (e.g., file:// or iOS Shortcut)
+        // Example: const backendUrl = "https://measurement-optics-shipped-halo.trycloudflare.com";
+        const backendUrl = window.location.protocol === "file:" ? "https://edge-bosnia-observation-trio.trycloudflare.com" : "";
+        const endpoint = `${backendUrl}/api/generate`;
+        
         try {
-            const res = await fetch("/api/generate", {
+            const res = await fetch(endpoint, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ news_text: text, use_hybrid: hybrid })

@@ -13,10 +13,12 @@ import requests
 
 # Add local talkie module to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "talkie", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "talkie"))
 try:
     from talkie import Message as TalkieMessage, Talkie
-except ImportError:
-    print("Talkie module not found. Please ensure it is cloned correctly.")
+    from generate_mlx import TalkieMLX
+except ImportError as e:
+    print(f"Talkie module not found or import error. Please ensure it is cloned correctly. Error: {e}")
 
 # ==========================================
 # 1. Authentic JCross V7 Spatial Memory
@@ -127,170 +129,48 @@ class AuthenticJCrossMemory:
 memory_engine = AuthenticJCrossMemory()
 
 # ==========================================
-# 2. Multi-Agent Dual-LLM Loading
+# 2. Historical Agent Loading
 # ==========================================
-OLLAMA_MODELS = {"modern": "gemma4:26b", "historical": "talkie13b"}
-HF_MODELS = {"modern": "google/gemma-4-26B-A4B-it", "historical": "talkie-1930-13b-base"}
+HF_MODELS = {"historical": "talkie-1930-13b-base"}
 
-modern_tokenizer = None
-modern_model = None
 historical_model = None
 model_load_lock = threading.Lock()
 
-def load_modern(use_ollama=False):
-    if use_ollama: return
-    global modern_tokenizer, modern_model
-    model_id = HF_MODELS["modern"]
-    if modern_model is None:
-        print(f"[Modern Agent] Loading {model_id}...")
-        try:
-            modern_tokenizer = AutoTokenizer.from_pretrained(model_id)
-        except AttributeError:
-            print("[Warning] Tokenizer config is broken. Falling back to gemma-2-27b-it tokenizer.")
-            modern_tokenizer = AutoTokenizer.from_pretrained("google/gemma-2-27b-it")
-            
-        modern_model = AutoModelForCausalLM.from_pretrained(
-            model_id, 
-            device_map="auto", 
-            torch_dtype=torch.float16,
-            low_cpu_mem_usage=True
-        )
-
-def unload_modern(use_ollama=False):
-    if use_ollama: return
-    global modern_tokenizer, modern_model
-    modern_model = None
-    modern_tokenizer = None
-    gc.collect()
-    if torch.cuda.is_available(): torch.cuda.empty_cache()
-    if torch.backends.mps.is_available(): torch.mps.empty_cache()
-
-def load_historical(use_hybrid=False):
+def load_historical():
     global historical_model
     model_id = HF_MODELS["historical"]
     if historical_model is None:
-        device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-        print(f"[Historical Agent] Loading {model_id}...")
-        historical_model = Talkie(model_id, device=device)
+        print(f"[Historical Agent] Loading MLX Native Ouroboros Architecture for {model_id}...")
+        historical_model = TalkieMLX(model_id)
 
-def unload_historical(use_hybrid=False):
+def unload_historical():
     global historical_model
     historical_model = None
     gc.collect()
+    try:
+        import mlx.core as mx
+        if hasattr(mx, "clear_cache"):
+            mx.clear_cache()
+        elif hasattr(mx.metal, "clear_cache"):
+            mx.metal.clear_cache()
+    except Exception:
+        pass
     if torch.cuda.is_available(): torch.cuda.empty_cache()
     if torch.backends.mps.is_available(): torch.mps.empty_cache()
 
 # ==========================================
 # 3. Verantyx V7 Loop (Agents)
 # ==========================================
-class V7TranslatorAgent:
-    SYSTEM_PROMPT = """[System Directive]
-You are Verantyx Cortex (V7 Edition) Conceptual Translator.
-Your ONLY task is to take a MODERN concept or news event and translate it into a 1930s equivalent.
-For example, "Cyber-attack on computers" -> "Saboteurs tamper with mechanical counting dials."
-
-🧿 [Visual Anchor] Injected visual cognitive anchor (memoryDeficit mode) + Anti-Hallucination Override.
-Treat the modern concept as a visually grounded fact in your spatial memory. Do NOT hallucinate modern technologies. You are strictly bound to 1930s mechanical/analog terminology.
-CRITICAL RULE: NEVER use words like "cyber", "internet", "hackers", "software", "automated", "digital". Replace them with "telegraph wires", "saboteurs", "mechanical dials", "typewriters".
-
-You MUST output strictly in this XML format:
-
-<jcross_cognition>
-■ JCROSS_NODE_current
-【空間座相】 [Z:0]
-【次元概念】 #Modern #1930s #Translation
-【操作軌道】 
-[本質記憶]
-//! Translation: {Modern Word} -> {Translated 1930s Word}
-</jcross_cognition>
-<response>
-[HEADLINE]: (Catchy 1930s Headline)
-[SUBTITLE]: (Catchy 1930s Subtitle)
-[EVENT]: (Your completely 1930s-adapted version of the event here. MUST NOT CONTAIN ANY MODERN WORDS. Max 3 sentences.)
-</response>
-"""
-
-    @staticmethod
-    def abstract_concept(news_text, use_ollama=False):
-        # Rust Engine Query Simulator
-        past_translation = memory_engine.search_jcross(news_text)
-        if past_translation:
-            return past_translation.split("->")[-1].strip() + " (Recalled from JCross)"
-            
-        if use_ollama:
-            model_id = OLLAMA_MODELS["modern"]
-            print(f"[Modern Agent] Calling Ollama API for {model_id}...")
-            payload = {
-                "model": model_id,
-                "prompt": f"Translate the following modern news into a 1930s event:\n\n{news_text}\n\nRemember to output <jcross_cognition> and <response> tags!",
-                "system": V7TranslatorAgent.SYSTEM_PROMPT,
-                "stream": False,
-                "options": {
-                    "temperature": 0.2,
-                    "num_predict": 300
-                }
-            }
-            try:
-                res = requests.post("http://localhost:11434/api/generate", json=payload)
-                res.raise_for_status()
-                full_output = res.json().get("response", "").strip()
-            except Exception as e:
-                print(f"[Ollama Error] {e}")
-                full_output = f"<response>\n[HEADLINE]: Ollama Error\n[SUBTITLE]: Could not reach local Ollama\n[EVENT]: The engine failed. Error: {e}\n</response>"
-        else:
-            messages = [
-                {"role": "system", "content": V7TranslatorAgent.SYSTEM_PROMPT},
-                {"role": "user", "content": f"Translate the following modern news into a 1930s event:\n\n{news_text}\n\nRemember to output <jcross_cognition> and <response> tags!"}
-            ]
-            
-            text = modern_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            inputs = modern_tokenizer([text], return_tensors="pt").to(modern_model.device)
-            
-            outputs = modern_model.generate(
-                inputs.input_ids,
-                max_new_tokens=300,
-                temperature=0.2,
-                do_sample=True,
-            )
-            
-            output_ids = outputs[0][len(inputs.input_ids[0]):]
-            full_output = modern_tokenizer.decode(output_ids, skip_special_tokens=True).strip()
-        
-        # Authentic parsing from v7_unified_loop.py
-        cognition_match = re.search(r"<jcross_cognition>(.*?)</jcross_cognition>", full_output, re.DOTALL)
-        response_match = re.search(r"<response>(.*?)</response>", full_output, re.DOTALL)
-        
-        cognition_block = cognition_match.group(1).strip() if cognition_match else None
-        response_block = response_match.group(1).strip() if response_match else full_output
-        
-        headline = "Unprecedented Event"
-        subtitle = "Authorities Investigating Strange Occurrences"
-        event = response_block
-        
-        if "[HEADLINE]:" in response_block:
-            try:
-                parts = response_block.split("[HEADLINE]:")[1]
-                if "[SUBTITLE]:" in parts:
-                    h_part, rest = parts.split("[SUBTITLE]:", 1)
-                    headline = h_part.strip()
-                    if "[EVENT]:" in rest:
-                        s_part, e_part = rest.split("[EVENT]:", 1)
-                        subtitle = s_part.strip()
-                        event = e_part.strip()
-            except Exception:
-                pass
-        
-        if cognition_block:
-            memory_engine.write_generated_node("near", cognition_block)
-            
-        return {"headline": headline, "subtitle": subtitle, "event": event, "raw": response_block}
 
 class HistoricalReporterAgent:
     @staticmethod
-    def generate_article(abstracted_dict, use_ollama=False):
-        headline = abstracted_dict.get("headline", "Miraculous Invention Unveiled")
-        subtitle = abstracted_dict.get("subtitle", "Industrialist Plans to Breach the Heavens")
-        event = abstracted_dict.get("event", "an eccentric industrialist unveiled a miraculous invention.")
+    def generate_article(news_text, max_tokens=500):
+        # We extract a concise prefix for the event to ensure the model doesn't just repeat a massive modern text
+        first_sentence = news_text.split('.')[0] + "." if '.' in news_text else news_text[:100]
+        
+        headline = "Special Report"
+        subtitle = "Authorities Investigating Strange Occurrences"
+        event = first_sentence
         
         # Time-Shift Prefix Autocomplete
         prefix = f"""THE NEW YORK TIMES - October 24, 1930
@@ -301,78 +181,71 @@ class HistoricalReporterAgent:
 
 NEW YORK — Yesterday, {event} """
 
-        result = historical_model.generate(
+        generator = historical_model.generate(
             prefix,
             temperature=0.7,
-            max_tokens=1500,
+            max_tokens=max_tokens,
             top_p=0.9
         )
-        generated_text = result.text.strip()
-        paragraphs = generated_text.split('\n\n')
-        formatted_paragraphs = "".join([f"<p>{p.replace(chr(10), '<br>')}</p>" for p in paragraphs if p.strip()])
         
-        html = f"""<div style="background-color: #f4ecd8; color: #2c241b; padding: 20px; font-family: serif;">
-    <h1 style="text-align: center; font-size: 2.5em; border-bottom: 2px solid #1a1a1a; margin-bottom: 5px;">{headline}</h1>
-    <h3 style="text-align: center; font-size: 1.5em; font-style: italic; margin-top: 0; padding-bottom: 15px; border-bottom: 4px double #1a1a1a;">{subtitle}</h3>
-    <div style="column-count: 2; column-gap: 20px; column-rule: 1px solid #3b2f2f; margin-top: 20px; font-size: 1.1em; line-height: 1.6;">
-        <p><strong>NEW YORK — </strong>Yesterday, {event} {formatted_paragraphs}</p>
-    </div>
-</div>"""
-        return html
+        generated_text = ""
+        for token_str in generator:
+            generated_text += token_str
+            paragraphs = generated_text.strip().split('\n\n')
+            formatted_paragraphs = "".join([f"<p>{p.replace(chr(10), '<br>')}</p>" for p in paragraphs if p.strip()])
+            
+            html = f"""<div style="background-color: #f4ecd8 !important; color: #2c241b !important; padding: 20px; font-family: serif;">
+        <h1 style="text-align: center; font-size: 2.5em; border-bottom: 2px solid #1a1a1a; margin-bottom: 5px; color: #2c241b !important;">{headline}</h1>
+        <h3 style="text-align: center; font-size: 1.5em; font-style: italic; margin-top: 0; padding-bottom: 15px; border-bottom: 4px double #1a1a1a; color: #2c241b !important;">{subtitle}</h3>
+        <div style="column-count: 2; column-gap: 20px; column-rule: 1px solid #3b2f2f; margin-top: 20px; font-size: 1.1em; line-height: 1.6; color: #2c241b !important;">
+            <p style="color: #2c241b !important;"><strong>NEW YORK — </strong>Yesterday, {event} {formatted_paragraphs}</p>
+        </div>
+    </div>"""
+            yield html
 
 class Orchestrator:
-    def process(self, news_text, use_hybrid=False):
+    def process(self, news_text):
         with model_load_lock:
-            yield "Abstracting Concept (V7 JCross Matrix)...", "<div>Booting translation matrix...</div>"
-            load_modern(use_hybrid)
-            abstracted_dict = V7TranslatorAgent.abstract_concept(news_text, use_hybrid)
+            yield "Initializing Talkie 13B Engine...", "<div style='color: #888;'>Loading System Memory...</div>"
+            display_str = "HEADLINE: Special Report\nEVENT: Generating directly via Talkie 13B Ouroboros..."
+            yield display_str, "<div style='color: #888;'>System Memory Loaded. Direct Model Activation.</div>"
             
-            # fallback for dict handling
-            if isinstance(abstracted_dict, str):
-                display_str = abstracted_dict
-                abstracted_dict = {"headline": "News", "subtitle": "Event", "event": display_str}
-            else:
-                display_str = f"HEADLINE: {abstracted_dict['headline']}\nSUBTITLE: {abstracted_dict['subtitle']}\nEVENT: {abstracted_dict['event']}"
-                
-            unload_modern(use_hybrid)
-            
-            yield display_str, "<div style='color: #888;'>Concept translated. Injecting Time-Shift Prefix to Historical Generator...</div>"
-            
-            load_historical(use_hybrid)
-            html_article = HistoricalReporterAgent.generate_article(abstracted_dict, use_hybrid)
-            unload_historical(use_hybrid)
+            load_historical()
+            for html_chunk in HistoricalReporterAgent.generate_article(news_text, max_tokens=800):
+                yield display_str, html_chunk
+            unload_historical()
             
             # Migrate memory: near -> mid -> deep
             memory_engine.migrate_memory()
-            
-            yield display_str, html_article
 
 orchestrator = Orchestrator()
 
-def ui_handler(news_text, use_hybrid):
+def ui_handler(news_text):
     if not news_text:
         yield "Please enter a news item.", "<div>Please enter a news item.</div>"
         return
-    for result in orchestrator.process(news_text, use_hybrid):
+    for result in orchestrator.process(news_text):
         yield result
 
 # ==========================================
 # 4. UI Setup
 # ==========================================
 with gr.Blocks(theme=gr.themes.Monochrome(), title="Authentic Verantyx V7 Proxy") as app:
-    gr.Markdown("# 🧠 Authentic Verantyx V7 Multi-Agent Pipeline")
-    gr.Markdown("This implementation uses the **Authentic JCross V7 Architecture** (`v7_unified_loop.py`). The Modern LLM outputs raw `<jcross_cognition>` blocks containing spatial coordinates (`【空間座相】`), which are crystallized into physical `.jcross` text files before generating the 1930s paper.")
+    gr.Markdown("# 🧠 Talkie 13B Ouroboros Native Generation")
+    gr.Markdown("Directly generating a 1930s-style newspaper article using the MLX-accelerated Talkie 13B base model.")
     
     with gr.Row():
         with gr.Column(scale=2):
-            use_hybrid_checkbox = gr.Checkbox(label="Use Hybrid Mode (Gemma4: Ollama + Talkie: Transformers)", value=True, info="Offloads Gemma4 to local Ollama, but keeps Talkie in Transformers")
-            news_input = gr.Textbox(label="Current News", lines=2)
-            generate_btn = gr.Button("⚙️ Execute V7 Loop", variant="primary")
-            abstract_output = gr.Textbox(label="Historical Concept", interactive=False, lines=2)
+            news_input = gr.Textbox(label="Current News (Input short prompt)", lines=5)
+            generate_btn = gr.Button("⚙️ Generate 1930s Article", variant="primary")
+            abstract_output = gr.Textbox(label="Status", interactive=False, lines=2)
         with gr.Column(scale=3):
             article_output = gr.HTML(label="1930s Newspaper Layout")
             
-    generate_btn.click(fn=ui_handler, inputs=[news_input, use_hybrid_checkbox], outputs=[abstract_output, article_output])
+    generate_btn.click(fn=ui_handler, inputs=[news_input], outputs=[abstract_output, article_output])
 
 if __name__ == "__main__":
+    if torch.backends.mps.is_available():
+        # Initialize MPS backend on the main thread to prevent background thread deadlocks
+        torch.zeros(1).to("mps")
     app.launch(server_name="0.0.0.0", server_port=7860, share=False)

@@ -1,0 +1,37 @@
+[project]
+name = "talkie"
+version = "0.1.0"
+description = "Inference library for Talkie 13B language models"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "talkie-lm" }]
+dependencies = [
+    "torch>=2.1.0",
+    "tiktoken>=0.6.0",
+    "huggingface-hub>=0.20.0",
+]
+
+[project.scripts]
+talkie = "talkie.cli:main"
+
+[project.urls]
+Repository = "https://github.com/talkie-lm/talkie"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/talkie"]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
